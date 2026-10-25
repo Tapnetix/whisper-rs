@@ -3,11 +3,14 @@
 extern crate bindgen;
 extern crate semver;
 
+#[path = "build_support/source_sync.rs"]
+mod source_sync;
+
 use cmake::Config;
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let target = env::var("TARGET").unwrap();
@@ -101,19 +104,27 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=wrapper.h");
+    for path in source_sync::watched_paths(Path::new("whisper.cpp"))
+        .expect("Failed to enumerate whisper.cpp native inputs")
+    {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let whisper_root = out.join("whisper.cpp");
-
-    if !whisper_root.exists() {
-        std::fs::create_dir_all(&whisper_root).unwrap();
-        fs_extra::dir::copy("./whisper.cpp", &out, &Default::default()).unwrap_or_else(|e| {
+    let sync = source_sync::sync_source_tree(Path::new("whisper.cpp"), &whisper_root)
+        .unwrap_or_else(|error| {
             panic!(
-                "Failed to copy whisper sources into {}: {}",
+                "Failed to synchronize whisper sources into {}: {}",
                 whisper_root.display(),
-                e
+                error
             )
         });
+    if sync.changed() {
+        println!(
+            "cargo:warning=Synchronized whisper.cpp sources into OUT_DIR ({} copied, {} removed)",
+            sync.copied_files, sync.removed_files
+        );
     }
 
     if env::var("WHISPER_DONT_GENERATE_BINDINGS").is_ok() {

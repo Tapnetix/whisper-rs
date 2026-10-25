@@ -1,4 +1,5 @@
 #include "whisper.h"
+#include "whisper_dtw_median_filter.h"
 #include "whisper-arch.h"
 
 #include "ggml.h"
@@ -8769,34 +8770,19 @@ static void median_filter(struct ggml_tensor * dst , const struct ggml_tensor * 
         return;
     }
     int filter_width = ((median_filter_user_data *) userdata)->filter_width;
-    WHISPER_ASSERT(filter_width < a->ne[2]);
-    WHISPER_ASSERT(filter_width % 2);
-    WHISPER_ASSERT(ggml_n_dims(a) == 3);
-    WHISPER_ASSERT(a->type == GGML_TYPE_F32);
-
-    std::vector<float> filter;
-    filter.reserve(filter_width);
-    for (int64_t i = 0; i < a->ne[0]; ++i) {
-        for (int64_t j = 0; j < a->ne[1]; ++j) {
-            for (int64_t k = 0; k < a->ne[2]; ++k) {
-                for (int64_t off = -filter_width/2; off <= filter_width/2; ++off) {
-                    // "reflect" padding
-                    int64_t idx = k + off;
-                    if (idx < 0) {
-                        idx = -idx;
-                    } else if (idx >= a->ne[2]) {
-                        idx = 2*(a->ne[2] - 1) - idx;
-                    }
-
-                    filter.push_back(whisper_get_f32_nd(a, i, j, idx, 0));
-                }
-                std::sort(filter.begin(), filter.end());
-                const float v = filter[filter.size()/2];
-                whisper_set_f32_nd(dst, i, j, k, 0, v);
-                filter.clear();
-            }
-        }
-    }
+    // A singleton audio-token axis is represented as a 2D ggml tensor.
+    WHISPER_ASSERT(whisper_dtw::median_filter_input_supported(
+        filter_width, a->ne[0], a->ne[1], a->ne[2], a->ne[3], a->type == GGML_TYPE_F32));
+    // Normal windows retain width 7. Short windows narrow to the largest odd
+    // width that fits; width 1 is the identity median for a singleton axis.
+    whisper_dtw::apply_median_filter(
+        a->ne[0], a->ne[1], a->ne[2], filter_width,
+        [a](int64_t head, int64_t token, int64_t audio) {
+            return whisper_get_f32_nd(a, head, token, audio, 0);
+        },
+        [dst](int64_t head, int64_t token, int64_t audio, float value) {
+            whisper_set_f32_nd(dst, head, token, audio, 0, value);
+        });
 }
 
 static void whisper_exp_compute_token_level_timestamps_dtw(

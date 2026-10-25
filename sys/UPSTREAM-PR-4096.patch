@@ -1,0 +1,36 @@
+From 70fdf1c5b6a3a30653b3b400933da1c4cea30a4d Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 2 Oct 2026 07:50:26 +0300
+Subject: [PATCH] whisper : narrow the DTW median filter instead of asserting
+ on short windows
+When a 30 s window advances only a few frames, the attention passed to
+median_filter has fewer audio tokens than the filter's width, and
+WHISPER_ASSERT(filter_width < a->ne[2]) aborts the whole program in the
+middle of a transcription. Narrow the filter to the largest odd width
+that fits (down to 1, no filtering) instead.
+---
+ src/whisper.cpp | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index dd8bd93780d..fcfe5e5a9d6 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -9125,7 +9125,15 @@ static void median_filter(struct ggml_tensor * dst , const struct ggml_tensor * a, int ith, int /*nth*/, void * userdata) {
+         return;
+     }
+     int filter_width = ((median_filter_user_data *) userdata)->filter_width;
+-    WHISPER_ASSERT(filter_width < a->ne[2]);
++    // A window that advanced only a few frames has fewer audio tokens than
++    // the filter is wide: narrow the filter instead of aborting (1: none).
++    if (filter_width >= a->ne[2]) {
++        filter_width = (a->ne[2] % 2) ? (int) a->ne[2] - 2 : (int) a->ne[2] - 1;
++        if (filter_width < 1) {
++            filter_width = 1;
++        }
++    }
++    WHISPER_ASSERT(filter_width < a->ne[2] || filter_width == 1);
+     WHISPER_ASSERT(filter_width % 2);
+     WHISPER_ASSERT(ggml_n_dims(a) == 3);
+     WHISPER_ASSERT(a->type == GGML_TYPE_F32);
+--
+2.50.1

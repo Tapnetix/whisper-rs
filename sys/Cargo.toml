@@ -22,6 +22,8 @@ include = [
 	"whisper.cpp/LICENSE",
 	"src/*.rs",
 	"build.rs",
+	"build_support/*.rs",
+	"tests/source_sync.rs",
 	"wrapper.h",
 ]
 
@@ -37,6 +39,10 @@ vulkan = []
 force-debug = []
 openmp = []
 intel-sycl = []
+
+[[test]]
+name = "source_sync"
+path = "tests/source_sync.rs"
 
 [build-dependencies]
 cmake = "0.1"
